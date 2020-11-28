@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
     sockjs.tornado.basehandler
     ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -10,7 +12,8 @@ import datetime
 import socket
 import logging
 
-from tornado.web import asynchronous, RequestHandler
+from tornado.web import RequestHandler
+from tornado.gen import coroutine
 
 try:
     # python 3
@@ -103,7 +106,7 @@ class BaseHandler(RequestHandler):
 class PreflightHandler(BaseHandler):
     """CORS preflight handler"""
 
-    @asynchronous
+    @coroutine
     def options(self, *args, **kwargs):
         """XHR cross-domain OPTIONS handler"""
         self.enable_cache()

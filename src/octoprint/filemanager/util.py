@@ -1,5 +1,5 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __author__ = "Gina Häußge <osd@foosel.net>"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
@@ -64,14 +64,14 @@ class DiskFileWrapper(AbstractFileWrapper):
 			shutil.copy2(self.path, path)
 
 	def stream(self):
-		return io.open(self.path, "rb")
+		return io.open(self.path, 'rb')
 
 class StreamWrapper(AbstractFileWrapper):
 	"""
 	A wrapper allowing processing of one or more consecutive streams.
 
 	Arguments:
-	    *streams (io.IOBase): One or more streams to process one after another to save to storage.
+	    *streams: One or more :py:`io.IOBase` streams to process one after another to save to storage.
 	"""
 	def __init__(self, filename, *streams):
 		if not len(streams) > 0:
@@ -87,8 +87,8 @@ class StreamWrapper(AbstractFileWrapper):
 		"""
 		import shutil
 
-		with atomic_write(path, "wb") as dest:
-			with self.stream() as source:
+		with atomic_write(path, mode='wb') as dest:
+			for source in self.streams:
 				shutil.copyfileobj(source, dest)
 
 	def stream(self):
@@ -107,7 +107,7 @@ class MultiStream(io.RawIOBase):
 	their contents in the order they are provided to the constructor.
 
 	Arguments:
-	    *streams (io.IOBase): One or more streams to concatenate.
+	    *streams: One or more :py:`io.IOBase` streams to concatenate.
 	"""
 	def __init__(self, *streams):
 		io.RawIOBase.__init__(self)
@@ -142,7 +142,7 @@ class MultiStream(io.RawIOBase):
 		for stream in self.streams:
 			try:
 				stream.close()
-			except:
+			except Exception:
 				pass
 
 	def readable(self, *args, **kwargs):
@@ -159,40 +159,43 @@ class LineProcessorStream(io.RawIOBase):
 	While reading from this stream the provided `input_stream` is read line by line, calling the (overridable) method
 	:meth:`.process_line` for each read line.
 
-	Sub classes can thus modify the contents of the `input_stream` in line, while it is being read.
+	Sub classes can thus modify the contents of the `input_stream` in line, while it is being read. Keep in mind that
+	``process_line`` will receive the line as a byte stream - if underlying code needs to operate on unicode you'll need
+	to do the decoding yourself.
 
 	Arguments:
-	    input_stream (io.IOBase): The stream to process on the fly.
+	    input_stream (io.RawIOBase): The stream to process on the fly.
 	"""
 
 	def __init__(self, input_stream):
 		io.RawIOBase.__init__(self)
 		self.input_stream = io.BufferedReader(input_stream)
-		self.leftover = None
+		self.leftover = bytearray()
 
 	def read(self, n=-1):
 		if n == 0:
 			return b''
 
-		result = b''
+		result = bytearray()
 		while len(result) < n or n == -1:
+			# add left over from previous loop
 			bytes_left = (n - len(result)) if n != -1 else -1
-			if self.leftover is not None:
-				if bytes_left != -1 and bytes_left < len(self.leftover):
-					result += self.leftover[:bytes_left]
-					self.leftover = self.leftover[bytes_left:]
-					break
-				else:
-					result += self.leftover
-					self.leftover = None
+			if bytes_left != -1 and bytes_left < len(self.leftover):
+				# only s
+				result += self.leftover[:bytes_left]
+				self.leftover = self.leftover[bytes_left:]
+				break
+			else:
+				result += self.leftover
+				self.leftover = bytearray()
 
+			# read one line from the underlying stream
 			processed_line = None
 			while processed_line is None:
 				line = self.input_stream.readline()
 				if not line:
 					break
 				processed_line = self.process_line(line)
-
 			if processed_line is None:
 				break
 
@@ -204,7 +207,7 @@ class LineProcessorStream(io.RawIOBase):
 			else:
 				result += processed_line
 
-		return result
+		return bytes(result)
 
 	def readinto(self, b):
 		n = len(b)
@@ -220,10 +223,11 @@ class LineProcessorStream(io.RawIOBase):
 		wrapper `input_stream`.
 
 		Arguments:
-		    line (str): The line as read from `self.input_stream`
+		    line (bytes): The line as read from `self.input_stream` in byte representation (str under Python 2 and
+		      bytes under Python 3)
 
 		Returns:
-		    str or None: The processed version of the line (might also be multiple lines), or None if the line is to be
+		    bytes or None: The processed version of the line (might also be multiple lines), or None if the line is to be
 		        stripped from the processed stream.
 		"""
 		return line

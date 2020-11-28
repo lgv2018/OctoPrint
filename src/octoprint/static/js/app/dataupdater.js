@@ -45,16 +45,16 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
 
     self.connect = function() {
         if (self._connectedDeferred) {
-            self._connectedDeferred.reject();
+            self._connectedDeferred.reject("reconnect");
         }
         self._connectedDeferred = $.Deferred();
-        OctoPrint.socket.connect({debug: !!SOCKJS_DEBUG});
+        OctoPrint.socket.connect({debug: !!SOCKJS_DEBUG, connectTimeout: SOCKJS_CONNECT_TIMEOUT});
         return self._connectedDeferred.promise();
     };
 
     self.reconnect = function() {
         if (self._connectedDeferred) {
-            self._connectedDeferred.reject();
+            self._connectedDeferred.reject("reconnect");
         }
         self._connectedDeferred = $.Deferred();
         OctoPrint.socket.reconnect();
@@ -121,6 +121,12 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         }
     };
 
+    self._onConnectTimeout = function() {
+        if (self._connectedDeferred) {
+            self._connectedDeferred.reject("timeout");
+        }
+    };
+
     self._onConnectMessage = function(event) {
         if (self._initializedDeferred) {
             self._initializedDeferred.reject();
@@ -132,6 +138,9 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         }
 
         var data = event.data;
+
+        // update permissions
+        PERMISSIONS = data["permissions"];
 
         // update version information
         var oldVersion = VERSION;
@@ -148,13 +157,21 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         var oldConfigHash = self._configHash;
         self._configHash = data["config_hash"];
 
+        log.info("Connected to the server");
+
+        // if we have a connected promise, resolve it now
+        if (self._connectedDeferred) {
+            self._connectedDeferred.resolve();
+            self._connectedDeferred = undefined;
+        }
+
         self._ifInitialized(function() {
             // process safe mode
             if (self._safeModePopup) self._safeModePopup.remove();
             if (data["safe_mode"]) {
                 // safe mode is active, let's inform the user
-                log.info("Safe mode is active. Third party plugins and language packs are disabled and cannot be enabled.");
-                log.info("Reason for safe mode: " + data["safe_mode"]);
+                log.info("❗ Safe mode is active. Third party plugins and language packs are disabled and cannot be enabled.");
+                log.info("❗ Reason for safe mode: " + data["safe_mode"]);
 
                 var reason = gettext("Unknown");
                 switch (data["safe_mode"]) {
@@ -174,7 +191,7 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
 
                 self._safeModePopup = new PNotify({
                     title: gettext("Safe mode is active"),
-                    text: _.sprintf(gettext("<p>The server is currently running in safe mode. Third party plugins and language packs are disabled and cannot be enabled.</p><p>Reason: %(reason)s</p>"), {reason: reason}),
+                    text: _.sprintf(gettext("<p>The server is currently running in safe mode. Third party plugins and language packs are disabled and cannot be enabled.</p><p>Reason: %(reason)s</p>"), {reason: _.escape(reason)}),
                     hide: false
                 });
             }
@@ -183,9 +200,11 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
             // hide it, plus reload the camera feed if it's currently displayed
             if ($("#offline_overlay").is(":visible")) {
                 hideOfflineOverlay();
+                log.info("Triggering reconnect on all view models");
                 callViewModels(self.allViewModels, "onServerReconnect");
                 callViewModels(self.allViewModels, "onDataUpdaterReconnect");
             } else {
+                log.info("Triggering connect on all view models");
                 callViewModels(self.allViewModels, "onServerConnect");
             }
 
@@ -198,15 +217,8 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
                 showReloadOverlay();
             }
 
+            log.info("Server (re)connect processed");
         });
-
-        log.info("Connected to the server");
-
-        // if we have a connected promise, resolve it now
-        if (self._connectedDeferred) {
-            self._connectedDeferred.resolve();
-            self._connectedDeferred = undefined;
-        }
     };
 
     self._onHistoryData = function(event) {
@@ -235,6 +247,15 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         });
     };
 
+    self._onRenderProgress = function(event) {
+        self._ifInitialized(function() {
+            var data = event.data;
+            callViewModels(self.allViewModels, "onRenderProgress", [
+                data["progress"]
+            ]);
+        });
+    };
+
     self._printerErrorCancelNotification = undefined;
     self._printerErrorDisconnectNotification = undefined;
     self._printerResetNotification = undefined;
@@ -251,7 +272,7 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
                 }
                 self._printerErrorCancelNotification = new PNotify({
                     title: gettext("Error reported by printer"),
-                    text: _.sprintf(gettext("Your printer's firmware reported an error. Due to that the ongoing print job will be cancelled. Reported error: %(firmwareError)s"), payload),
+                    text: _.sprintf(gettext("Your printer's firmware reported an error. Due to that the ongoing print job will be cancelled. Reported error: %(firmwareError)s"), {firmwareError: _.escape(payload.firmwareError)}),
                     type: "error",
                     hide: false
                 });
@@ -262,34 +283,33 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
                 switch (payload.reason) {
                     case "firmware": {
                         title = gettext("Error reported by printer");
-                        text = _.sprintf(gettext("Your printer's firmware reported an error. Due to that OctoPrint will disconnect. Reported error: %(error)s"), payload);
+                        text = _.sprintf(gettext("Your printer's firmware reported an error. Due to that OctoPrint will disconnect. Reported error: %(error)s"), {error: _.escape(payload.error)});
                         break;
                     }
                     case "resend":
                     case "resend_loop":
                     case "timeout": {
                         title = gettext("Communication error");
-                        text = _.sprintf(gettext("There was a communication error while talking to your printer. Please consult the terminal output and octoprint.log for details. Error: %(error)s"), payload);
+                        text = _.sprintf(gettext("There was a communication error while talking to your printer. Please consult the terminal output and octoprint.log for details. Error: %(error)s"), {error: _.escape(payload.error)});
                         break;
                     }
                     case "connection": {
                         title = gettext("Error connecting to printer");
-                        text = _.sprintf(gettext("There was an error while trying to connect to your printer. Error: %(error)s"), payload);
+                        text = _.sprintf(gettext("There was an error while trying to connect to your printer. Error: %(error)s"), {error: _.escape(payload.error)});
                         break;
                     }
                     case "start_print": {
                         title = gettext("Error starting a print");
-                        text = _.sprintf(gettext("There was an error while trying to start a print job. Error: %(error)s"), payload);
+                        text = _.sprintf(gettext("There was an error while trying to start a print job. Error: %(error)s"), {error: _.escape(payload.error)});
                         break;
                     }
-                    case "autodetect_port":
-                    case "autodetect_baudrate": {
+                    case "autodetect": {
                         // ignore
                         break;
                     }
                     default: {
                         title = gettext("Unknown error");
-                        text = _.sprintf(gettext("There was an unknown error while talking to your printer. Please consult the terminal output and octoprint.log for details. Error: %(error)s"), payload);
+                        text = _.sprintf(gettext("There was an unknown error while talking to your printer. Please consult the terminal output and octoprint.log for details. Error: %(error)s"), {error: _.escape(payload.error)});
                         break;
                     }
                 }
@@ -387,6 +407,7 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
     OctoPrint.socket.onDisconnected = self._onDisconnected;
     OctoPrint.socket.onReconnectAttempt = self._onReconnectAttempt;
     OctoPrint.socket.onReconnectFailed = self._onReconnectFailed;
+    OctoPrint.socket.onConnectTimeout = self._onConnectTimeout;
     OctoPrint.socket.onRateTooHigh = self._onDecreaseRate;
     OctoPrint.socket.onRateTooLow = self._onIncreaseRate;
     OctoPrint.socket
@@ -394,6 +415,7 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         .onMessage("history", self._onHistoryData)
         .onMessage("current", self._onCurrentData)
         .onMessage("slicingProgress", self._onSlicingProgress)
+        .onMessage("renderProgress", self._onRenderProgress)
         .onMessage("event", self._onEvent)
         .onMessage("timelapse", self._onTimelapse)
         .onMessage("plugin", self._onPluginMessage)

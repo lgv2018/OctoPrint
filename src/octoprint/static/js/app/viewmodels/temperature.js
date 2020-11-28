@@ -4,6 +4,7 @@ $(function() {
 
         self.loginState = parameters[0];
         self.settingsViewModel = parameters[1];
+        self.access = parameters[2];
 
         self._createToolEntry = function() {
             var entry = {
@@ -58,14 +59,17 @@ $(function() {
             item: undefined,
 
             title: ko.pureComputed(function() {
-                return _.sprintf(gettext("Changing Offset of %(name)s"), {name: self.changingOffset.name()});
+                return _.sprintf(gettext("Changing Offset of %(name)s"), {name: _.escape(self.changingOffset.name())});
             }),
             description: ko.pureComputed(function() {
                 return _.sprintf(gettext("Use the form below to specify a new offset to apply to all temperature commands sent from printed files for \"%(name)s\""),
-                    {name: self.changingOffset.name()});
+                    {name: _.escape(self.changingOffset.name())});
             })
         };
         self.changeOffsetDialog = undefined;
+
+        // TODO: find some nicer way to update plot AFTER graph becomes visible
+        self.loginStateSubscription = undefined;
 
         self.tools = ko.observableArray([]);
         self.hasTools = ko.pureComputed(function() {
@@ -333,22 +337,33 @@ $(function() {
         self.profileText = function(heater, profile) {
             var text = gettext("Set %(name)s (%(value)s)");
 
+            var format = function(temp) {
+                if (temp === 0 || temp === undefined || temp === null) {
+                    return gettext("Off");
+                } else {
+                    return "" + temp + "°C";
+                }
+            };
+
             var value;
-            if (heater.key() === "bed") {
-                value = profile.bed;
+            if (heater === "all") {
+                value = gettext("Tool") + ": %(extruder)s";
+                if (self.hasBed()) {
+                    value += "/" + gettext("Bed") + ": %(bed)s";
+                }
+                if (self.hasChamber()) {
+                    value += "/" + gettext("Chamber") + ": %(chamber)s";
+                }
+                value = _.sprintf(value, {extruder: format(profile.extruder), bed: format(profile.bed), chamber: format(profile.chamber)});
+            } else if (heater.key() === "bed") {
+                value = format(profile.bed);
             } else if (heater.key() === "chamber") {
-                value = profile.chamber;
+                value = format(profile.chamber);
             } else {
-                value = profile.extruder;
+                value = format(profile.extruder);
             }
 
-            if (value === 0 || value === undefined) {
-                value = gettext("Off");
-            } else {
-                value = "" + value + "°C";
-            }
-
-            return _.sprintf(text, {name: profile.name, value: value});
+            return _.sprintf(text, {name: _.escape(profile.name), value: _.escape(value)});
         };
 
         self.updatePlot = function() {
@@ -612,6 +627,26 @@ $(function() {
             return self.setTargetToValue(item, value);
         };
 
+        // Wrapper of self.setTargetFromProfile() to apply all the temperature from a temperature profile
+        self.setTargetsFromProfile = function(temperatureProfile) {
+            if(temperatureProfile === undefined) {
+                console.log("temperatureProfile is undefined!");
+                return;
+            }
+
+            if(self.hasBed()) {
+                self.setTargetFromProfile(self.bedTemp, temperatureProfile);
+            }
+
+            if(self.hasChamber()) {
+                self.setTargetFromProfile(self.chamberTemp, temperatureProfile);
+            }
+
+            self.tools().forEach(function(element) {
+                self.setTargetFromProfile(element, temperatureProfile);
+            });
+        };
+
         self.setTargetFromProfile = function(item, profile) {
             if (!profile) return OctoPrintClient.createRejectedDeferred();
 
@@ -628,6 +663,21 @@ $(function() {
 
             if (target === undefined) target = 0;
             return self.setTargetToValue(item, target);
+        };
+
+        // Wrapper of self.setTargetToZero() to set off all the temperatures
+        self.setTargetsToZero = function() {
+            if(self.hasBed()) {
+                self.setTargetToZero(self.bedTemp);
+            }
+
+            if(self.hasChamber()) {
+                self.setTargetToZero(self.chamberTemp);
+            }
+
+            self.tools().forEach(function(element) {
+                self.setTargetToZero(element);
+            });
         };
 
         self.setTargetToZero = function(item) {
@@ -871,14 +921,15 @@ $(function() {
             self._printerProfileUpdated();
         };
 
-        self.onUserLoggedIn = self.onUserLoggedOut = function() {
+        self.onUserPermissionsChanged = self.onUserLoggedIn = self.onUserLoggedOut = function() {
             self.initOrUpdate();
         };
+
     }
 
     OCTOPRINT_VIEWMODELS.push({
         construct: TemperatureViewModel,
-        dependencies: ["loginStateViewModel", "settingsViewModel"],
+        dependencies: ["loginStateViewModel", "settingsViewModel", "accessViewModel"],
         elements: ["#temp", "#temp_link", "#change_offset_dialog"]
     });
 });

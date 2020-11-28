@@ -3,6 +3,9 @@ $(function() {
     function PiSupportViewModel(parameters) {
         var self = this;
 
+        self.loginState = parameters[0];
+        self.access = parameters[1];
+
         self.model = ko.observable();
 
         self.currentUndervoltage = ko.observable(false);
@@ -13,6 +16,10 @@ $(function() {
         self.pastIssue = ko.observable(false);
 
         self.requestData = function() {
+            if (!self.loginState.hasPermission(self.access.permissions.PLUGIN_PI_SUPPORT_STATUS)) {
+                return;
+            }
+
             OctoPrint.plugins.pi_support.get()
                 .done(function(response) {
                     // Raspberry Pi model
@@ -22,13 +29,11 @@ $(function() {
                     self.fromThrottleState(response.throttle_state);
 
                     // OctoPi version
-                    $("#octopi_support_footer").remove();
+                    $("#pi_support_footer").remove();
                     if (!response.octopi_version) return;
 
-                    var octoPrintVersion = $(".footer span.version");
-                    var octoPiVersion = $("<span id='octopi_support_footer'> " + gettext("running on") + " " + gettext("OctoPi")
-                        + " <span class='octopi_version'>" + response.octopi_version + "</span></span>");
-                    $(octoPiVersion).insertAfter(octoPrintVersion);
+                    var octoPiVersion = $("<li id='pi_support_footer'><small>" + gettext("OctoPi") + " " + "<span class='octopi_version'>" + response.octopi_version + "</span></small></li>");
+                    $("#footer_version").append(octoPiVersion);
                 })
         };
 
@@ -70,11 +75,7 @@ $(function() {
                 + "<p><small>" + gettext("Click the symbol in the navbar for more information.") + "</small></p>";
         });
 
-        self.onStartup = function() {
-            self.requestData();
-        };
-
-        self.onServerReconnect = function() {
+        self.onStartup = self.onServerReconnect = self.onUserLoggedIn = self.onUserLoggedOut = function() {
             self.requestData();
         };
 
@@ -82,6 +83,7 @@ $(function() {
             if (plugin !== "pi_support") return;
             if (!data.hasOwnProperty("state") || !data.hasOwnProperty("type")) return;
             if (data.type !== "throttle_state") return;
+            if (!self.loginState.hasPermission(self.access.permissions.PLUGIN_PI_SUPPORT_STATUS)) return;
 
             self.fromThrottleState(data.state);
         }
@@ -89,6 +91,7 @@ $(function() {
 
     OCTOPRINT_VIEWMODELS.push({
         construct: PiSupportViewModel,
-        elements: ["#navbar_plugin_pi_support"]
+        elements: ["#navbar_plugin_pi_support"],
+        dependencies: ["loginStateViewModel", "accessViewModel"]
     });
 });

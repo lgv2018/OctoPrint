@@ -352,16 +352,74 @@ table {
     &.settings_users_name {
       text-overflow: ellipsis;
       text-align: left;
+      width: 100px;
     }
 
-    &.settings_users_active, &.settings_users_admin {
+    &.settings_users_active {
       text-align: center;
       width: 55px;
     }
 
-    &.settings_users_actions {
+    table.settings_users_details_table {
+      font-size: 0.8em;
+      margin-bottom: 0;
+
+      .settings_users_details_key {
+        width: 100px;
+      }
+
+      th, td {
+        border: 0;
+        padding: 0;
+      }
+    }
+
+    &.settings_groups_default {
+      text-align: center;
+      width: 20px;
+    }
+
+    &.settings_groups_name {
+      width: 180px;
+    }
+
+    table.settings_groups_details_table {
+      font-size: 0.8em;
+      margin-bottom: 0;
+
+      .settings_groups_details_key {
+        width: 100px;
+      }
+
+      th, td {
+        border: 0;
+        padding: 0;
+      }
+    }
+
+    &.settings_users_actions,
+    &.settings_groups_actions {
       width: 60px;
       .actioncol;
+    }
+
+    &.settings_accesscontrol_permissions_list_checkbox {
+      width: 20px;
+    }
+
+    &.settings_accesscontrol_groups_list_checkbox {
+      width: 20px;
+    }
+
+    &.settings_accesscontrol_subgroups_list_checkbox {
+      width: 20px;
+    }
+
+    #settings-usersDialogAddUser, #settings-usersDialogEditUser {
+        position: relative;
+        top: 50%;
+        transform: translateY(-50%);
+        margin-top: 0 !important;
     }
 
     // Printer profiles
@@ -379,6 +437,7 @@ table {
       width: 80px;
       .actioncol;
     }
+
   }
 }
 
@@ -397,6 +456,8 @@ table {
   margin-top: 20px;
 
   th, td {
+    line-height: 25px;
+
     &.temperature_tool,
     &.temperature_actual,
     &.temperature_target,
@@ -667,6 +728,10 @@ ul.dropdown-menu li a {
       .title {
         text-overflow: ellipsis;
         word-break: break-all;
+        margin-right: 30px;
+      }
+
+      .toggleAdditionalData {
       }
 
       .internal, .uploaded, .size, .additionalInfo {
@@ -808,53 +873,16 @@ ul.dropdown-menu li a {
       margin-bottom: 2px;
     }
   }
-}
 
-/** GCODE viewer */
-
-#gcode {
-  .progress {
-    width: 588px;
-
-    .bar {
-      .transition(width 0s linear);
-    }
+  .pulsate_text_opacity {
+    animation: pulsate_input 1s ease-out;
+    animation-iteration-count: infinite;
   }
 
-  .canvas_container {
-    position: relative;
-    &:hover, &:active {
-      outline: 0;
-    }
-  }
-
-  .layer-buttons {
-    padding-top: 5px;
-    padding-bottom: 7px;
-  }
-
-  #gcode_layer_slider {
-    position: absolute;
-    right: 0;
-    top: 0;
-    height: 568px;
-    float: right;
-
-    .slider-handle {
-      width: 14px;
-      height: 14px;
-      margin-left: -3px;
-      margin-top: -7px;
-    }
-  }
-
-  #gcode_command_slider {
-    .slider-handle {
-      width: 14px;
-      height: 14px;
-      margin-left: -7px;
-      margin-top: -3px;
-    }
+  @keyframes pulsate_input {
+    0% { color: @gray }
+    50% { color: fade(@gray, 20%) }
+    100% { color: @gray }
   }
 }
 
@@ -917,6 +945,24 @@ ul.dropdown-menu li a {
   }
 }
 
+#about_sponsors {
+  @sponsorCols: 3;
+  ul {
+    columns: @sponsorCols;
+    -webkit-columns: @sponsorCols;
+    -moz-columns: @sponsorCols;
+  }
+}
+
+#about_authors {
+  @authorCols: 3;
+  ul {
+    columns: @authorCols;
+    -webkit-columns: @authorCols;
+    -moz-columns: @authorCols;
+  }
+}
+
 /** Footer */
 .footer {
   ul {
@@ -944,6 +990,10 @@ ul.dropdown-menu li a {
 }
 
 /** Notifications */
+
+.ui-pnotify{
+  position:fixed;
+}
 
 .ui-pnotify .alert a {
   color: #c09853;
@@ -1479,4 +1529,74 @@ input[type="number"].input-nospin {
   button {
     margin-top: 20px;
   }
+}
+
+// loading overlay
+#page-container-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #ffffff;
+  z-index: 12301;
+
+  .wrapper {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+
+    .outer {
+      display: table;
+      width: 100%;
+      height: 100%;
+
+      .inner {
+        display: table-cell;
+        vertical-align: middle;
+
+        .content {
+          text-align: center;
+        }
+      }
+    }
+  }
+
+}
+
+// noscript
+#page-container-noscript {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #ffffff;
+  z-index: 12310;
+
+  .wrapper {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+
+    .outer {
+      display: table;
+      width: 100%;
+      height: 100%;
+
+      .inner {
+        display: table-cell;
+        vertical-align: middle;
+
+        .content {
+          text-align: center;
+        }
+      }
+    }
+  }
+
 }

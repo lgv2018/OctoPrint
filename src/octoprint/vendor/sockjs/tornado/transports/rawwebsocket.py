@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
     sockjs.tornado.transports.rawwebsocket
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -40,7 +42,7 @@ class RawWebSocketTransport(websocket.SockJSWebSocketHandler, base.BaseTransport
 
         # Disable nagle if needed
         if self.server.settings['disable_nagle']:
-            self.stream.socket.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+            self.set_nodelay(True)
 
         # Create and attach to session
         self.session = RawSession(self.server.get_connection_class(), self.server)

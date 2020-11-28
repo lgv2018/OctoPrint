@@ -1,6 +1,9 @@
 $(function() {
         OctoPrint = window.OctoPrint;
 
+        // show page loading overlay (if enabled)
+        $("#page-container-loading").show();
+
         //~~ Lodash setup
 
         _.mixin({"sprintf": sprintf, "vsprintf": vsprintf});
@@ -36,7 +39,8 @@ $(function() {
                     mobile: false,
                     desktop: false
                 },
-                viewmodels: {}
+                viewmodels: {},
+                startedUp: false
             };
 
             var browserVisibilityCallbacks = [];
@@ -200,9 +204,8 @@ $(function() {
         [
             // printer states
             gettext("Offline"),
-            gettext("Opening serial port"),
-            gettext("Detecting serial port"),
-            gettext("Detecting baudrate"),
+            gettext("Opening serial connection"),
+            gettext("Detecting serial connection"),
             gettext("Connecting"),
             gettext("Operational"),
             gettext("Starting"),
@@ -227,6 +230,7 @@ $(function() {
         PNotify.prototype.options.stack.firstpos2 = 20;
         PNotify.prototype.options.stack.spacing1 = 20;
         PNotify.prototype.options.stack.spacing2 = 20;
+        PNotify.prototype.options.stack.context = $("#page-container-main");
         PNotify.prototype.options.delay = 5000;
         PNotify.prototype.options.animate_speed = "fast";
 
@@ -382,6 +386,9 @@ $(function() {
                 try {
                     viewModelInstance = _createViewModelInstance(viewModel, viewModelMap, optionalDependencyPass);
                 } catch (exc) {
+                    if (Sentry) {
+                        Sentry.captureException(exc);
+                    }
                     log.error("Error instantiating", viewModel.name, ":", (exc.stack || exc));
                     continue;
                 }
@@ -577,116 +584,146 @@ $(function() {
             throw new Error("settingsViewModel is missing, can't run UI");
         }
 
+        if (!_.has(viewModelMap, "accessViewModel") || !viewModelMap["accessViewModel"].permissions) {
+            throw new Error("accessViewmodel is missing or incomplete, can't run UI");
+        }
+
         if (!_.has(viewModelMap, "loginStateViewModel")) {
             throw new Error("loginStateViewModel is missing, can't run UI");
         }
 
+        if (!_.has(viewModelMap, "uiStateViewModel")) {
+            throw new Error("uiStateViewModel is missing, can't run UI");
+        }
+
         var bindViewModels = function() {
-            log.info("Going to bind " + allViewModelData.length + " view models...");
-            _.each(allViewModelData, function(viewModelData) {
-                try {
-                    if (!Array.isArray(viewModelData) || viewModelData.length !== 2) {
-                        log.error("View model data for", viewModel.constructor.name, "has wrong format, expected 2-tuple (viewModel, targets), got:", viewModelData);
-                        return;
-                    }
-
-                    var viewModel = viewModelData[0];
-                    var targets = viewModelData[1];
-
-                    if (targets === undefined) {
-                        log.error("No binding targets defined for view model", viewMode.constructor.name);
-                        return;
-                    }
-
-                    if (!_.isArray(targets)) {
-                        targets = [targets];
-                    }
-
+            try {
+                log.info("Going to bind " + allViewModelData.length + " view models...");
+                _.each(allViewModelData, function (viewModelData) {
                     try {
-                        callViewModel(viewModel, "onBeforeBinding", undefined, true);
-                    } catch (exc) {
-                        log.error("Error calling onBeforeBinding on view model", viewModel.constructor.name, ":", (exc.stack || exc));
-                        return;
-                    }
+                        if (!Array.isArray(viewModelData) || viewModelData.length !== 2) {
+                            if (Sentry) {
+                                Sentry.captureException(new Error("View model data for" + viewModelData.constructor.name + "has wrong format, expected 2-tuple (viewModel, targets), got:" + viewModelData));
+                            }
+                            log.error("View model data for", viewModelData.constructor.name, "has wrong format, expected 2-tuple (viewModel, targets), got:", viewModelData);
+                            return;
+                        }
 
-                    if (targets !== undefined) {
+                        var viewModel = viewModelData[0];
+                        var targets = viewModelData[1];
+
+                        if (targets === undefined) {
+                            log.error("No binding targets defined for view model", viewMode.constructor.name);
+                            return;
+                        }
+
                         if (!_.isArray(targets)) {
                             targets = [targets];
                         }
 
-                        viewModel._bindings = [];
+                        try {
+                            callViewModel(viewModel, "onBeforeBinding", undefined, true);
+                        } catch (exc) {
+                            if (Sentry) {
+                                Sentry.captureException(exc);
+                            }
+                            log.error("Error calling onBeforeBinding on view model", viewModel.constructor.name, ":", (exc.stack || exc));
+                            return;
+                        }
 
-                        _.each(targets, function (target) {
-                            if (target === undefined) {
-                                log.error("Undefined target for view model", viewModel.constructor.name);
-                                return;
+                        if (targets !== undefined) {
+                            if (!_.isArray(targets)) {
+                                targets = [targets];
                             }
 
-                            var object;
-                            if (!(target instanceof jQuery)) {
-                                try {
-                                    object = $(target);
-                                } catch (exc) {
-                                    log.error("Error while attempting to jquery-fy target", target, "of view model", viewModel.constructor.name, ":", (exc.stack || exc));
+                            viewModel._bindings = [];
+
+                            _.each(targets, function (target) {
+                                if (target === undefined) {
+                                    log.error("Undefined target for view model", viewModel.constructor.name);
                                     return;
                                 }
-                            } else {
-                                object = target;
-                            }
 
-                            if (object === undefined || !object.length) {
-                                log.info("Did not bind view model", viewModel.constructor.name, "to target", target, "since it does not exist");
-                                return;
-                            }
+                                var object;
+                                if (!(target instanceof jQuery)) {
+                                    try {
+                                        object = $(target);
+                                    } catch (exc) {
+                                        if (Sentry) {
+                                            Sentry.captureException(exc);
+                                        }
+                                        log.error("Error while attempting to jquery-fy target", target, "of view model", viewModel.constructor.name, ":", (exc.stack || exc));
+                                        return;
+                                    }
+                                } else {
+                                    object = target;
+                                }
 
-                            var element = object.get(0);
-                            if (element === undefined) {
-                                log.info("Did not bind view model", viewModel.constructor.name, "to target", target, "since it does not exist");
-                                return;
-                            }
+                                if (object === undefined || !object.length) {
+                                    log.info("Did not bind view model", viewModel.constructor.name, "to target", target, "since it does not exist");
+                                    return;
+                                }
 
-                            try {
-                                ko.applyBindings(viewModel, element);
-                                viewModel._bindings.push(target);
+                                var element = object.get(0);
+                                if (element === undefined) {
+                                    log.info("Did not bind view model", viewModel.constructor.name, "to target", target, "since it does not exist");
+                                    return;
+                                }
 
-                                callViewModel(viewModel, "onBoundTo", [target, element], true);
+                                try {
+                                    ko.applyBindings(viewModel, element);
+                                    viewModel._bindings.push(target);
 
-                                log.debug("View model", viewModel.constructor.name, "bound to", target);
-                            } catch (exc) {
-                                log.error("Could not bind view model", viewModel.constructor.name, "to target", target, ":", (exc.stack || exc));
-                            }
-                        });
-                    }
+                                    callViewModel(viewModel, "onBoundTo", [target, element], true);
 
-                    viewModel._unbound = viewModel._bindings === undefined || viewModel._bindings.length === 0;
-                    viewModel._bound = viewModel._bindings && viewModel._bindings.length > 0;
+                                    log.debug("View model", viewModel.constructor.name, "bound to", target);
+                                } catch (exc) {
+                                    if (Sentry) {
+                                        Sentry.captureException(exc);
+                                    }
+                                    log.error("Could not bind view model", viewModel.constructor.name, "to target", target, ":", (exc.stack || exc));
+                                }
+                            });
+                        }
 
-                    callViewModel(viewModel, "onAfterBinding");
-                } catch (exc) {
-                    var name;
-                    try {
-                        name = viewModel.constructor.name;
+                        viewModel._unbound = viewModel._bindings === undefined || viewModel._bindings.length === 0;
+                        viewModel._bound = viewModel._bindings && viewModel._bindings.length > 0;
+
+                        callViewModel(viewModel, "onAfterBinding");
                     } catch (exc) {
-                        name = "n/a";
+                        var name;
+                        try {
+                            name = viewModel.constructor.name;
+                        } catch (exc) {
+                            name = "n/a";
+                        }
+                        log.error("Error while processing view model", name, "for binding:", (exc.stack || exc));
                     }
-                    log.error("Error while processing view model", name, "for binding:", (exc.stack || exc));
+                });
+
+                callViewModels(allViewModels, "onAllBound", [allViewModels]);
+                log.info("... binding done");
+
+                // make sure we can track the browser tab visibility
+                OctoPrint.coreui.onBrowserVisibilityChange(function (status) {
+                    log.debug("Browser tab is now " + (status ? "visible" : "hidden"));
+                    callViewModels(allViewModels, "onBrowserTabVisibilityChange", [status]);
+                });
+
+                $(window).on("hashchange", function () {
+                    OctoPrint.coreui.updateTab();
+                });
+
+                log.info("Application startup complete");
+
+                viewModelMap["uiStateViewModel"].loading(false);
+            } catch (exc) {
+                if (Sentry) {
+                    Sentry.captureException(exc);
                 }
-            });
-
-            callViewModels(allViewModels, "onAllBound", [allViewModels]);
-            log.info("... binding done");
-
-            // make sure we can track the browser tab visibility
-            OctoPrint.coreui.onBrowserVisibilityChange(function(status) {
-                log.debug("Browser tab is now " + (status ? "visible" : "hidden"));
-                callViewModels(allViewModels, "onBrowserTabVisibilityChange", [status]);
-            });
-
-            $(window).on("hashchange", function() {
-                OctoPrint.coreui.updateTab();
-            });
-
-            log.info("Application startup complete");
+                viewModelMap["uiStateViewModel"].showLoadingError("Application startup failed.");
+                throw(exc);
+            }
 
             // startup complete
             callViewModels(allViewModels, "onStartupComplete");
@@ -698,6 +735,8 @@ $(function() {
 
             // Use bootstrap tabdrop for tabs and pills
             $('.nav-pills, .nav-tabs').tabdrop();
+
+            OctoPrint.coreui.startedUp = true;
         };
 
         var fetchSettings = function() {
@@ -730,6 +769,9 @@ $(function() {
                     // Decoupling all consecutive calls from this done event handler hence is an easy way
                     // to avoid this problem. A zero timeout should do the trick nicely.
                     window.setTimeout(bindViewModels, 0);
+                })
+                .fail(function() {
+                    viewModelMap["uiStateViewModel"].showLoadingError("Initial settings fetch failed.");
                 });
         };
 
@@ -764,6 +806,9 @@ $(function() {
          */
 
         var onServerConnect = function() {
+            // Initialize our permissions
+            viewModelMap["accessViewModel"].permissions.initialize();
+
             // Always perform a passive login on server (re)connect. No need for
             // onServerConnect/onServerReconnect on the LoginStateViewModel with this in place.
             return viewModelMap["loginStateViewModel"].requestData()
@@ -774,6 +819,9 @@ $(function() {
                     // This is to ensure that we have no concurrent requests triggered by socket events
                     // overriding each other's session during app initialization
                     dataUpdater.initialized();
+                })
+                .fail(function() {
+                    viewModelMap["uiStateViewModel"].showLoadingError("Passive login failed.");
                 });
         };
 
@@ -783,11 +831,19 @@ $(function() {
                 // make sure we trigger onServerConnect should we dis- and reconnect to the server
                 dataUpdater.connectCallback = onServerConnect;
 
+                // we are now connected to the server and need to change the loading message - jquery instead of
+                // binding because no bindings yet
+                $("#page-container-loading-header").html(gettext("Loading OctoPrint's UI, please wait..."));
+
                 // perform passive login first
-                onServerConnect().done(function() {
-                    // then trigger a settings fetch
-                    window.setTimeout(fetchSettings, 0);
-                });
+                onServerConnect()
+                    .done(function() {
+                        // then trigger a settings fetch
+                        window.setTimeout(fetchSettings, 0);
+                    });
+            })
+            .fail(function() {
+                viewModelMap["uiStateViewModel"].showLoadingError("Socket connection failed.");
             });
     }
 );

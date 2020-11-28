@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
     sockjs.tornado.transports.pollingbase
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -64,7 +66,7 @@ class PollingTransportBase(basehandler.PreflightHandler, base.BaseTransportMixin
 
         super(PollingTransportBase, self).on_connection_close()
 
-    def send_complete(self):
+    def send_complete(self, f=None):
         self._detach()
 
         # Avoid race condition when waiting for write callback and session getting closed in between

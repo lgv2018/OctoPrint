@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
     sockjs.tornado.transports.xhrstreaming
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -6,15 +8,14 @@
     Xhr-Streaming transport implementation
 """
 
-from tornado.web import asynchronous
-
 from octoprint.vendor.sockjs.tornado.transports import streamingbase
+from octoprint.vendor.sockjs.tornado.util import no_auto_finish
 
 
 class XhrStreamingTransport(streamingbase.StreamingTransportBase):
     name = 'xhr_streaming'
 
-    @asynchronous
+    @no_auto_finish
     def post(self, session_id):
         # Handle cookie
         self.preflight()
@@ -43,7 +44,7 @@ class XhrStreamingTransport(streamingbase.StreamingTransportBase):
             self.notify_sent(len(message))
 
             self.write(message + '\n')
-            self.flush(callback=self.send_complete)
+            self.flush().add_done_callback(self.send_complete)
         except IOError:
             # If connection dropped, make sure we close offending session instead
             # of propagating error all way up.

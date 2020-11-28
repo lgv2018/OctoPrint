@@ -621,6 +621,15 @@ function formatTemperature(temp, showF, offThreshold) {
     }
 }
 
+function formatNumberK(num) {
+    if (num > 1000) {
+        num = num / 1000.0;
+        return _.sprintf("%.2fk", num);
+    } else {
+        return _.sprintf("%i", num);
+    }
+}
+
 function pnotifyAdditionalInfo(inner) {
     return '<div class="pnotify_additional_info">'
         + '<div class="pnotify_more"><a href="#" onclick="$(this).children().toggleClass(\'icon-caret-right icon-caret-down\').parent().parent().next().slideToggle(\'fast\')">More <i class="icon-caret-right"></i></a></div>'
@@ -737,6 +746,8 @@ function showConfirmationDialog(msg, onacknowledge, options) {
 
     var html = options.html;
 
+    var checkboxes = options.checkboxes;
+
     var cancel = options.cancel || gettext("Cancel");
     var proceed = options.proceed || gettext("Proceed");
     var proceedClass = options.proceedClass || "danger";
@@ -764,18 +775,32 @@ function showConfirmationDialog(msg, onacknowledge, options) {
     var cancelButton = $('<a href="javascript:void(0)" class="btn">' + cancel + '</a>')
         .attr("data-dismiss", "modal")
         .attr("aria-hidden", "true");
-    var proceedButton = $('<a href="javascript:void(0)" class="btn">' + proceed + '</a>')
-        .addClass("btn-" + proceedClass);
+
+    if (!_.isArray(proceed)) {
+        proceed = [proceed];
+    }
+
+    var proceedButtons = [];
+    _.each(proceed, function(text) {
+        proceedButtons.push($('<a href="javascript:void(0)" class="btn">' + text + '</a>')
+            .addClass("btn-" + proceedClass));
+    });
 
     var modal = $('<div></div>')
         .addClass('modal hide');
     if (!nofade) {
         modal.addClass('fade');
     }
+
+    var buttons = $('<div></div>').addClass('modal-footer').append(cancelButton);
+    _.each(proceedButtons, function(button) {
+        buttons.append(button);
+    });
+
     modal.addClass(dialogClass)
         .append($('<div></div>').addClass('modal-header').append(modalHeader))
         .append($('<div></div>').addClass('modal-body').append(modalBody))
-        .append($('<div></div>').addClass('modal-footer').append(cancelButton).append(proceedButton));
+        .append(buttons);
     modal.on('hidden', function(event) {
         if (onclose && _.isFunction(onclose)) {
             onclose(event);
@@ -789,12 +814,14 @@ function showConfirmationDialog(msg, onacknowledge, options) {
     }
     modal.modal(modalOptions);
 
-    proceedButton.click(function(e) {
-        e.preventDefault();
-        if (onproceed && _.isFunction(onproceed)) {
-            onproceed(e);
-        }
-        modal.modal("hide");
+    _.each(proceedButtons, function(button, idx) {
+        button.click(function(e) {
+            e.preventDefault();
+            if (onproceed && _.isFunction(onproceed)) {
+                onproceed(idx, e);
+            }
+            modal.modal("hide");
+        })
     });
     cancelButton.click(function(e) {
         if (oncancel && _.isFunction(oncancel)) {
@@ -839,13 +866,12 @@ function showSelectionDialog(options) {
         selectionBody.append(container);
         additionalClass = "span6"
     } else {
-        container = $("<div class='row-fluid'></div>");
-        selectionBody.append(container);
-        additionalClass = "span6 offset3";
+        container = selectionBody;
+        additionalClass = "btn-block";
     }
 
     _.each(selections, function(s, i) {
-        var button = $('<button class="btn" data-index="' + i + '">' + selections[i] + '</button>');
+        var button = $('<button class="btn" style="white-space: normal; word-wrap: break-word" data-index="' + i + '">' + selections[i] + '</button>');
         if (additionalClass) {
             button.addClass(additionalClass);
         }
@@ -1233,6 +1259,9 @@ function setOnViewModelIf(viewModel, key, value, condition) {
 
         viewModel[key] = value;
     } catch (exc) {
+        if (Sentry) {
+            Sentry.captureException(exc);
+        }
         log.error("Error while setting", key, "to", value, "on view model", viewModel.constructor.name, ":", (exc.stack || exc));
     }
 }
@@ -1248,6 +1277,9 @@ function callViewModelsIf(allViewModels, method, condition, callback) {
         try {
             callViewModelIf(viewModel, method, condition, callback);
         } catch (exc) {
+            if (Sentry) {
+                Sentry.captureException(exc);
+            }
             log.error("Error calling", method, "on view model", viewModel.constructor.name, ":", (exc.stack || exc));
         }
     });
@@ -1307,6 +1339,9 @@ function callViewModelIf(viewModel, method, condition, callback, raiseErrors) {
             callback(viewModel[method], viewModel);
         }
     } catch (exc) {
+        if (Sentry) {
+            Sentry.captureException(exc);
+        }
         if (raiseErrors) {
             throw exc;
         } else {
@@ -1348,7 +1383,7 @@ var getQueryParameterByName = function(name, url) {
  * E.g. turns a null byte in the string into "\x00".
  *
  * Characters 0 to 31 excluding 9, 10 and 13 will be escaped, as will
- * 127 and 255. That should leave printable characters and unicode
+ * 127, 128 to 159 and 255. That should leave printable characters and unicode
  * alone.
  *
  * Originally based on
@@ -1363,7 +1398,7 @@ var escapeUnprintableCharacters = function(str) {
     var charCode;
 
     while (!isNaN(charCode = str.charCodeAt(index))) {
-        if ((charCode < 32 && charCode !== 9 && charCode !== 10 && charCode !== 13) || charCode === 127 || charCode === 255) {
+        if ((charCode < 32 && charCode !== 9 && charCode !== 10 && charCode !== 13) || charCode === 127 || (charCode >= 128 && charCode <= 159) || charCode === 255) {
             // special hex chars
             result += "\\x" + (charCode > 15 ? "" : "0") + charCode.toString(16)
         } else {

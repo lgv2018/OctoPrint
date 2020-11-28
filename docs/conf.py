@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 #
 # OctoPrint documentation build configuration file, created by
 # sphinx-quickstart on Mon Dec 02 17:08:50 2013.
@@ -33,8 +35,11 @@ needs_sphinx = '1.3'
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['codeblockext', 'onlineinclude', 'sphinx.ext.todo', 'sphinx.ext.autodoc', 'sphinxcontrib.httpdomain',
-              'sphinx.ext.napoleon', 'sphinxcontrib.mermaid']
+              'sphinx.ext.napoleon', 'sphinxcontrib.mermaid', 'sphinx.ext.intersphinx']
 todo_include_todos = True
+intersphinx_mapping = {'python': ('https://docs.python.org/3', None),
+                       'python2': ('https://docs.python.org/2', None),
+                       'pyserial': ('https://pythonhosted.org/pyserial', None)}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -49,8 +54,8 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'OctoPrint'
-copyright = u'%d-%d, Gina Häußge' % (year_since, year_current) if year_current > year_since else u'%d, Gina Häußge' % year_since
+project = 'OctoPrint'
+copyright = '%d-%d, Gina Häußge' % (year_since, year_current) if year_current > year_since else '%d, Gina Häußge' % year_since
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -102,13 +107,9 @@ numfig = True
 
 # -- Options for HTML output ---------------------------------------------------
 
-# on_rtd is whether we are on readthedocs.org, this line of code grabbed from docs.readthedocs.org
-on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
-
-if not on_rtd:  # only import and set the theme if we're building docs locally
-    import sphinx_rtd_theme
-    html_theme = 'sphinx_rtd_theme'
-    html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
+import sphinx_rtd_theme
+html_theme = 'sphinx_rtd_theme'
+html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of built-in themes.
@@ -144,7 +145,7 @@ if not on_rtd:  # only import and set the theme if we're building docs locally
 html_static_path = ['_static']
 
 def setup(app):
-    app.add_stylesheet("theme_overrides.css")
+    app.add_css_file("theme_overrides.css")
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
@@ -188,7 +189,7 @@ def setup(app):
 #html_file_suffix = None
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'OctoPrintdoc'
+htmlhelp_basename = 'OctoPrintDoc'
 
 
 # -- Options for LaTeX output --------------------------------------------------
@@ -207,8 +208,8 @@ htmlhelp_basename = 'OctoPrintdoc'
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 #latex_documents = [
-#  ('index', 'OctoPrint.tex', u'OctoPrint Documentation',
-#   u'Gina Häußge', 'manual'),
+#  ('index', 'OctoPrint.tex', 'OctoPrint Documentation',
+#   'Gina Häußge', 'manual'),
 #]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -237,8 +238,8 @@ htmlhelp_basename = 'OctoPrintdoc'
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ('index', 'octoprint', u'OctoPrint Documentation',
-     [u'Gina Häußge'], 1)
+    ('index', 'octoprint', 'OctoPrint Documentation',
+     ['Gina Häußge'], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -251,8 +252,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-  ('index', 'OctoPrint', u'OctoPrint Documentation',
-   u'Gina Häußge', 'OctoPrint', 'One line description of project.',
+  ('index', 'OctoPrint', 'OctoPrint Documentation',
+   'Gina Häußge', 'OctoPrint', 'One line description of project.',
    'Miscellaneous'),
 ]
 

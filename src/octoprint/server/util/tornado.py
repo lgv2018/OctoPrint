@@ -1,5 +1,5 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __author__ = "Gina Häußge <osd@foosel.net>"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
@@ -9,6 +9,7 @@ import logging
 import os
 import mimetypes
 import re
+import sys
 
 import tornado
 import tornado.web
@@ -24,7 +25,14 @@ import tornado.util
 
 import octoprint.util
 
+from past.builtins import unicode
 
+try:
+	from urllib.parse import urlparse # py3
+except ImportError:
+	from urlparse import urlparse # py2
+
+from . import PY3
 
 def fix_json_encode():
 	"""
@@ -40,6 +48,28 @@ def fix_json_encode():
 
 	import tornado.escape
 	tornado.escape.json_encode = fixed_json_encode
+
+
+def fix_websocket_check_origin():
+	"""
+	This fixes tornado.websocket.WebSocketHandler.check_origin to do the same origin check against the Host
+	header case-insensitively, as defined in RFC6454, Section 4, item 5.
+	"""
+
+	def patched_check_origin(self, origin):
+		def get_check_tuple(urlstring):
+			parsed = urlparse(urlstring)
+			return (parsed.scheme,
+			        parsed.hostname,
+			        parsed.port if parsed.port
+			        else 80 if parsed.scheme in ("http", "ws")
+			        else 443 if parsed.scheme in ("https", "wss")
+			        else None)
+
+		return get_check_tuple(origin) == get_check_tuple(self.request.full_url())
+
+	import tornado.websocket
+	tornado.websocket.WebSocketHandler.check_origin = patched_check_origin
 
 
 #~~ More sensible logging
@@ -71,7 +101,7 @@ class RequestlessExceptionLoggingMixin(tornado.web.RequestHandler):
 class CorsSupportMixin(tornado.web.RequestHandler):
 	"""
 	`tornado.web.RequestHandler <http://tornado.readthedocs.org/en/branch4.0/web.html#request-handlers>`_ mixin that
-	makes sure to set CORS headers similarily to the Flask backed API endpoints.
+	makes sure to set CORS headers similarly to the Flask backed API endpoints.
 	"""
 
 	ENABLE_CORS = False
@@ -81,7 +111,7 @@ class CorsSupportMixin(tornado.web.RequestHandler):
 		if self.request.method != "OPTIONS" and origin and self.ENABLE_CORS:
 			self.set_header("Access-Control-Allow-Origin", origin)
 
-	@tornado.web.asynchronous
+	@tornado.gen.coroutine
 	def options(self, *args, **kwargs):
 		if self.ENABLE_CORS:
 			origin = self.request.headers.get("Origin")
@@ -236,7 +266,7 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 				for field in fields:
 					k, sep, v = field.strip().partition("=")
 					if k == "boundary" and v:
-						if v.startswith(b'"') and v.endswith(b'"'):
+						if v.startswith('"') and v.endswith('"'):
 							self._multipart_boundary = tornado.escape.utf8(v[1:-1])
 						else:
 							self._multipart_boundary = tornado.escape.utf8(v)
@@ -284,12 +314,12 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 		delimiter = b"--%s" % self._multipart_boundary
 		delimiter_loc = data.find(delimiter)
 		delimiter_len = len(delimiter)
-		end_of_header = None
+		end_of_header = -1
 		if delimiter_loc != -1:
 			# found the delimiter in the currently available data
 			delimiter_data_end = 0 if delimiter_loc == 0 else delimiter_loc - 2
 			data, self._buffer = data[0:delimiter_data_end], data[delimiter_loc:]
-			end_of_header = self._buffer.find("\r\n\r\n")
+			end_of_header = self._buffer.find(b"\r\n\r\n")
 		else:
 			# make sure any boundary (with single or double ==) contained at the end of chunk does not get
 			# truncated by this processing round => save it to the buffer for next round
@@ -304,7 +334,7 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 			self._on_part_header(self._buffer[delimiter_len+2:end_of_header])
 			self._buffer = self._buffer[end_of_header + 4:]
 
-		if delimiter_loc != -1 and self._buffer.strip() == delimiter + "--":
+		if delimiter_loc != -1 and self._buffer.strip() == delimiter + b"--":
 			# we saw the last boundary and are at the end of our request
 			if self._current_part:
 				self._on_part_finish(self._current_part)
@@ -327,7 +357,7 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 
 		header_check = header.find(self._multipart_boundary)
 		if header_check != -1:
-			self._logger.warn("Header still contained multipart boundary, stripping it...")
+			self._logger.warning("Header still contained multipart boundary, stripping it...")
 			header = header[header_check:]
 
 		# convert to dict
@@ -336,9 +366,9 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 		except UnicodeDecodeError:
 			try:
 				header = tornado.httputil.HTTPHeaders.parse(header.decode("iso-8859-1"))
-			except:
+			except Exception:
 				# looks like we couldn't decode something here neither as UTF-8 nor ISO-8859-1
-				self._logger.warn("Could not decode multipart headers in request, should be either UTF-8 or ISO-8859-1")
+				self._logger.warning("Could not decode multipart headers in request, should be either UTF-8 or ISO-8859-1")
 				self.send_error(400)
 				return
 
@@ -346,19 +376,19 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 		disposition, disp_params = _parse_header(disp_header, strip_quotes=False)
 
 		if disposition != "form-data":
-			self._logger.warn("Got a multipart header without form-data content disposition, ignoring that one")
+			self._logger.warning("Got a multipart header without form-data content disposition, ignoring that one")
 			return
 		if not disp_params.get("name"):
-			self._logger.warn("Got a multipart header without name, ignoring that one")
+			self._logger.warning("Got a multipart header without name, ignoring that one")
 			return
 
 		filename = disp_params.get("filename*", None) # RFC 5987 header present?
 		if filename is not None:
 			try:
 				filename = _extended_header_value(filename)
-			except:
+			except Exception:
 				# parse error, this is not RFC 5987 compliant after all
-				self._logger.warn("extended filename* value {!r} is not RFC 5987 compliant".format(filename))
+				self._logger.warning("extended filename* value {!r} is not RFC 5987 compliant".format(filename))
 				self.send_error(400)
 				return
 		else:
@@ -457,12 +487,14 @@ class UploadStorageFallbackHandler(RequestlessExceptionLoggingMixin,
 
 				fields = dict((self._suffixes[key], value) for (key, value) in parameters.items())
 				for n, p in fields.items():
-					key = name + "." + n
+					if n is None or p is None:
+						continue
+					key = name + b"." + octoprint.util.to_bytes(n)
 					self._new_body += b"--%s\r\n" % self._multipart_boundary
 					self._new_body += b"Content-Disposition: form-data; name=\"%s\"\r\n" % key
 					self._new_body += b"Content-Type: text/plain; charset=utf-8\r\n"
 					self._new_body += b"\r\n"
-					self._new_body += b"%s\r\n" % p
+					self._new_body += octoprint.util.to_bytes(p) + b'\r\n'
 			elif "data" in part:
 				self._new_body += b"--%s\r\n" % self._multipart_boundary
 				value = part["data"]
@@ -547,10 +579,15 @@ def _extended_header_value(value):
 
 	if value.lower().startswith("iso-8859-1'") or value.lower().startswith("utf-8'"):
 		# RFC 5987 section 3.2
-		from urllib import unquote
+		try:
+			from urllib import unquote
+		except ImportError:
+			from urllib.parse import unquote
 		encoding, _, value = value.split("'", 2)
-		return unquote(octoprint.util.to_bytes(value, encoding="iso-8859-1")).decode(encoding)
-
+		if PY3:
+			return unquote(value, encoding=encoding)
+		else:
+			return unquote(octoprint.util.to_bytes(value, encoding="iso-8859-1")).decode(encoding)
 	else:
 		# no encoding provided, strip potentially present quotes and call it a day
 		return octoprint.util.to_unicode(_strip_value_quotes(value), encoding="utf-8")
@@ -655,7 +692,6 @@ class WsgiInputContainer(object):
 		:param body: an optional body  to use as ``wsgi.input`` instead of ``request.body``, can be a string or a stream
 		"""
 		from tornado.wsgi import to_wsgi_str
-		import sys
 		import io
 
 		# determine the request_body to supply as wsgi.input
@@ -804,7 +840,7 @@ class CustomHTTP1Connection(tornado.http1connection.HTTP1Connection):
 		tornado.http1connection.HTTP1Connection.__init__(self, stream, is_client, params=params, context=context)
 
 		import re
-		self._max_body_sizes = map(lambda x: (x[0], re.compile(x[1]), x[2]), self.params.max_body_sizes or list())
+		self._max_body_sizes = list(map(lambda x: (x[0], re.compile(x[1]), x[2]), self.params.max_body_sizes or list()))
 		self._default_max_body_size = self.params.default_max_body_size or self.stream.max_buffer_size
 
 	def _read_body(self, code, headers, delegate):
@@ -940,11 +976,17 @@ class LargeResponseHandler(RequestlessExceptionLoggingMixin,
 	       called with the response handler as parameter. May return ``None`` to prevent the ETag response header
 	       from being set. If not provided the last modified time of the file in question will be used as returned
 	       by ``get_content_version``.
+	   name_generator (function): Callback to call for generating the value of the attachment file name header. Will be
+	       called with the requested path as parameter.
+	   mime_type_guesser (function): Callback to guess the mime type to use for the content type encoding of the
+	       response. Will be called with the requested path on disk as parameter.
+	   is_pre_compressed (bool): if the file is expected to be pre-compressed, i.e, if there is a file in the same
+	       directory with the same name, but with '.gz' appended and gzip-encoded
 	"""
 
 	def initialize(self, path, default_filename=None, as_attachment=False, allow_client_caching=True,
 	               access_validation=None, path_validation=None, etag_generator=None, name_generator=None,
-	               mime_type_guesser=None):
+	               mime_type_guesser=None, is_pre_compressed=False):
 		tornado.web.StaticFileHandler.initialize(self, os.path.abspath(path), default_filename)
 		self._as_attachment = as_attachment
 		self._allow_client_caching = allow_client_caching
@@ -953,6 +995,11 @@ class LargeResponseHandler(RequestlessExceptionLoggingMixin,
 		self._etag_generator = etag_generator
 		self._name_generator = name_generator
 		self._mime_type_guesser = mime_type_guesser
+		self._is_pre_compressed = is_pre_compressed
+
+	def should_use_precompressed(self):
+		return (self._is_pre_compressed
+		        and "gzip" in self.request.headers.get("Accept-Encoding"))
 
 	def get(self, path, include_body=True):
 		if self._access_validation is not None:
@@ -963,8 +1010,15 @@ class LargeResponseHandler(RequestlessExceptionLoggingMixin,
 		if "cookie" in self.request.arguments:
 			self.set_cookie(self.request.arguments["cookie"][0], "true", path="/")
 
-		result = tornado.web.StaticFileHandler.get(self, path, include_body=include_body)
-		return result
+		if self.should_use_precompressed():
+			if os.path.exists(os.path.join(self.root, path + ".gz")):
+				self.set_header("Content-Encoding", "gzip")
+				path = path + ".gz"
+			else:
+				logging.getLogger(__name__).warning("Precompressed assets expected but {}.gz does not exist "
+				                                    "in {}, using plain file instead.".format(path, self.root))
+
+		return tornado.web.StaticFileHandler.get(self, path, include_body=include_body)
 
 	def set_extra_headers(self, path):
 		if self._as_attachment:
@@ -982,19 +1036,37 @@ class LargeResponseHandler(RequestlessExceptionLoggingMixin,
 			self.set_header("Cache-Control", "max-age=0, must-revalidate, private")
 			self.set_header("Expires", "-1")
 
+	@property
+	def original_absolute_path(self):
+		"""The path of the uncompressed file corresponding to the compressed file"""
+		if self._is_pre_compressed:
+			return self.absolute_path.rstrip('.gz')
+		return self.absolute_path
+
 	def compute_etag(self):
 		if self._etag_generator is not None:
 			return self._etag_generator(self)
 		else:
 			return self.get_content_version(self.absolute_path)
 
+	# noinspection PyAttributeOutsideInit
 	def get_content_type(self):
 		if self._mime_type_guesser is not None:
-			type = self._mime_type_guesser(self.absolute_path)
+			type = self._mime_type_guesser(self.original_absolute_path)
 			if type is not None:
 				return type
 
-		return tornado.web.StaticFileHandler.get_content_type(self)
+		correct_absolute_path = None
+		try:
+			# reset self.absolute_path temporarily
+			if self.should_use_precompressed():
+				correct_absolute_path = self.absolute_path
+				self.absolute_path = self.original_absolute_path
+			return tornado.web.StaticFileHandler.get_content_type(self)
+		finally:
+			# restore self.absolute_path
+			if self.should_use_precompressed() and correct_absolute_path is not None:
+				self.absolute_path = correct_absolute_path
 
 	@classmethod
 	def get_content_version(cls, abspath):
@@ -1042,7 +1114,7 @@ class UrlProxyHandler(RequestlessExceptionLoggingMixin,
 		self._basename = basename
 		self._access_validation = access_validation
 
-	@tornado.web.asynchronous
+	@tornado.gen.coroutine
 	def get(self, *args, **kwargs):
 		if self._access_validation is not None:
 			self._access_validation(self.request)
@@ -1090,7 +1162,7 @@ class UrlProxyHandler(RequestlessExceptionLoggingMixin,
 		if not self._basename:
 			return None
 
-		typeValue = map(str.strip, content_type.split(";"))
+		typeValue = list(x.strip() for x in content_type.split(";"))
 		if len(typeValue) == 0:
 			return None
 
@@ -1169,9 +1241,10 @@ class GlobalHeaderTransform(tornado.web.OutputTransform):
 		if removed_headers is None:
 			removed_headers = []
 
-		return type(name, (GlobalHeaderTransform,), dict(HEADERS=headers,
-		                                                 FORCED_HEADERS=forced_headers,
-		                                                 REMOVED_HEADERS=removed_headers))
+		return type(octoprint.util.to_native_str(name), (GlobalHeaderTransform,),
+				    dict(HEADERS=headers,
+						 FORCED_HEADERS=forced_headers,
+						 REMOVED_HEADERS=removed_headers))
 
 	def __init__(self, request):
 		tornado.web.OutputTransform.__init__(self, request)
@@ -1198,11 +1271,7 @@ def access_validation_factory(app, validator, *args):
 	:return: an access validator taking a request as parameter and performing the request validation
 	"""
 
-	# TODO remove in 1.4.0
-	if len(args):
-		# old parameters incl. login_manager
-		validator = args[0]
-
+	# noinspection PyProtectedMember
 	def f(request):
 		"""
 		Creates a custom wsgi and Flask request context in order to be able to process user information
@@ -1214,9 +1283,19 @@ def access_validation_factory(app, validator, *args):
 
 		wsgi_environ = WsgiInputContainer.environ(request)
 		with app.request_context(wsgi_environ):
-			app.session_interface.open_session(app, flask.request)
-			app.login_manager.reload_user()
-			validator(flask.request)
+			session = app.session_interface.open_session(app, flask.request)
+			user_id = session.get("_user_id")
+			user = None
+
+			# Yes, using protected methods is ugly. But these used to be publicly available in former versions
+			# of flask-login, there are no replacements, and seeing them renamed & hidden in a minor version release
+			# without any mention in the changelog means the public API ain't strictly stable either, so we might
+			# as well make our life easier here and just use them...
+			if user_id is not None and app.login_manager._user_callback is not None:
+				user = app.login_manager._user_callback(user_id)
+			app.login_manager._update_request_context_with_user(user)
+
+			validator(flask.request, *args)
 	return f
 
 def path_validation_factory(path_filter, status_code=404):

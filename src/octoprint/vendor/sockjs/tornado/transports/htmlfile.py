@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
     sockjs.tornado.transports.htmlfile
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -6,10 +8,20 @@
     HtmlFile transport implementation.
 """
 
-from tornado.web import asynchronous
+import re
 
 from octoprint.vendor.sockjs.tornado import proto
 from octoprint.vendor.sockjs.tornado.transports import streamingbase
+from octoprint.vendor.sockjs.tornado.util import no_auto_finish
+
+try:
+    # noinspection PyCompatibility
+    from html import escape
+except:
+    # noinspection PyDeprecation
+    from cgi import escape
+
+RE = re.compile(r'[\W_]+')
 
 # HTMLFILE template
 HTMLFILE_HEAD = r'''
@@ -36,7 +48,7 @@ class HtmlFileTransport(streamingbase.StreamingTransportBase):
     def initialize(self, server):
         super(HtmlFileTransport, self).initialize(server)
 
-    @asynchronous
+    @no_auto_finish
     def get(self, session_id):
         # Start response
         self.preflight()
@@ -53,7 +65,7 @@ class HtmlFileTransport(streamingbase.StreamingTransportBase):
             return
 
         # TODO: Fix me - use parameter
-        self.write(HTMLFILE_HEAD % callback)
+        self.write(HTMLFILE_HEAD % escape(RE.sub('', callback)))
         self.flush()
 
         # Now try to attach to session
@@ -78,7 +90,7 @@ class HtmlFileTransport(streamingbase.StreamingTransportBase):
             self.notify_sent(len(message))
 
             self.write(msg)
-            self.flush(callback=self.send_complete)
+            self.flush().add_done_callback(self.send_complete)
         except IOError:
             # If connection dropped, make sure we close offending session instead
             # of propagating error all way up.

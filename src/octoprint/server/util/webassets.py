@@ -1,15 +1,18 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __author__ = "Gina Häußge <gina@octoprint.org>"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
 __copyright__ = "Copyright (C) 2017 The OctoPrint Project - Released under terms of the AGPLv3 License"
 
+import logging
+import gzip
+import os
 import re
 
 try:
 	from urllib import parse as urlparse
-except:
+except ImportError:
 	import urlparse
 
 from webassets.bundle import Bundle
@@ -60,7 +63,7 @@ class LessImportRewrite(UrlRewriter):
 	name = "less_importrewrite"
 
 	patterns = {
-		"import_rewrite": re.compile("(@import(\s+\(.*\))?\s+)\"(.*)\";")
+		"import_rewrite": re.compile(r"(@import(\s+\(.*\))?\s+)\"(.*)\";")
 	}
 
 	def import_rewrite(self, m):
@@ -73,7 +76,7 @@ class SourceMapRewrite(UrlRewriter):
 	name = "sourcemap_urlrewrite"
 
 	patterns = {
-		"url_rewrite": re.compile("(//#\s+sourceMappingURL=)(.*)")
+		"url_rewrite": re.compile(r"(//#\s+sourceMappingURL=)(.*)")
 	}
 
 	def url_rewrite(self, m):
@@ -86,7 +89,7 @@ class SourceMapRemove(PatternRewriter):
 	name = "sourcemap_remove"
 
 	patterns = {
-		"sourcemap_remove": re.compile("(//#\s+sourceMappingURL=)(.*)")
+		"sourcemap_remove": re.compile(r"(//#\s+sourceMappingURL=)(.*)")
 	}
 
 	def sourcemap_remove(self, m):
@@ -105,6 +108,35 @@ class JsDelimiterBundler(Filter):
 		out.write("\n;\n")
 
 
+class GzipFile(Filter):
+	name = "gzip"
+	options = {}
+
+	def output(self, _in, out, **kwargs):
+		data = _in.read()
+		out.write(data)
+
+		# webassets requires us to output a "str", but we can't do that since gzip
+		# provides binary outputs.
+		#
+		# We work around that by outputting the gzipped file to another path
+		output_path = kwargs.get("output_path", None)
+		if output_path:
+			gzipped_output_path = output_path + ".gz"
+			try:
+				with gzip.open(gzipped_output_path, "wb", 9) as f:
+					f.write(data.encode("utf8"))
+			except Exception:
+				logging.getLogger(__name__).exception("Error writing gzipped "
+				                                      "output of {} to {}".format(output_path,
+				                                                                  gzipped_output_path))
+				try:
+					os.remove(gzipped_output_path)
+				except Exception:
+					logging.getLogger(__name__).exception("Error removing broken "
+					                                      ".gz from {}".format(gzipped_output_path))
+
+
 class ChainedHunk(BaseHunk):
 	def __init__(self, *hunks):
 		self._hunks = hunks
@@ -113,7 +145,7 @@ class ChainedHunk(BaseHunk):
 		pass
 
 	def data(self):
-		result = u""
+		result = ""
 		for hunk in self._hunks:
 			if isinstance(hunk, tuple) and len(hunk) == 2:
 				hunk, f = hunk
@@ -124,12 +156,12 @@ class ChainedHunk(BaseHunk):
 
 
 _PLUGIN_BUNDLE_WRAPPER_PREFIX = \
-u"""// JS assets for plugin {plugin}
+"""// JS assets for plugin {plugin}
 (function () {{
     try {{
         """
 _PLUGIN_BUNDLE_WRAPPER_SUFFIX = \
-u"""
+"""
     }} catch (error) {{
         log.error("Error in JS assets for plugin {plugin}:", (error.stack || error));
     }}

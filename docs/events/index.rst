@@ -100,20 +100,44 @@ Shutdown
    The server is shutting down.
 
 ClientOpened
-   A client has connected to the web server.
+   A client has connected to the push socket.
 
    Payload:
 
-     * ``remoteAddress``: the remote address (IP) of the client that connected
+     * ``remoteAddress``: the remote address (IP) of the client that connected. On the push socket only available with
+       a valid login session.
 
    **Note:** Name changed in version 1.1.0
 
-ClientClosed
-   A client has disconnected from the webserver
+ClientAuthed
+   A client has authenticated a user session on the push socket.
 
    Payload:
 
-     * ``remoteAddress``: the remote address (IP) of the client that disconnected
+     * ``remoteAddress``: the remote address (IP) of the client that authed. On the push socket only available with a
+       valid login session.
+     * ``username``: the name of the user who authed. On the push socket only available with a valid login session.
+
+ClientClosed
+   A client has disconnected from the push socket.
+
+   Payload:
+
+     * ``remoteAddress``: the remote address (IP) of the client that disconnected. On the push socket only available
+       with a valid login session.
+
+UserLoggedIn
+   A user logged in. On the push socket only available with a valid login session with admin rights.
+
+   Payload:
+
+     * ``username``: the name of the user who logged in
+
+UserLoggedOut
+   A user logged out. On the push socket only available with a valid login session with admin rights.
+
+   Payload:
+     * ``username``: the name of the user who logged out
 
 ConnectivityChanged
    The server's internet connectivity changed
@@ -151,6 +175,9 @@ Error
    An unrecoverable error has been encountered, either as reported by the firmware (e.g. a thermal runaway) or
    on the connection.
 
+   Note that this event will not fire for error messages from the firmware that are handled (and as such recovered from)
+   either by OctoPrint or a plugin.
+
    Payload:
 
      * ``error``: the error string
@@ -170,12 +197,15 @@ File handling
 -------------
 
 Upload
-   A file has been uploaded through the web interface.
+   A file has been uploaded through the :ref:`REST API <sec-api-fileops-uploadfile>`.
 
    Payload:
      * ``name``: the file's name
      * ``path``: the file's path within its storage location
      * ``target``: the target storage location to which the file was uploaded, either ``local`` or ``sdcard``
+     * ``select``: whether the file will immediately be selected, as requested on the API by the corresponding parameter
+     * ``print``: whether the file will immediately start printing, as requested on the API by the corresponding parameter
+     * ``userdata``: optional ``userdata`` if provided on the API, will only be present if supplied in the upload request
 
    .. deprecated:: 1.3.0
 
@@ -669,7 +699,7 @@ SettingsUpdated
 .. _sec-events-available_events-printer_profile:
 
 Printer Profile
---------
+---------------
 
 PrinterProfileModified
    A printer profile was modified.

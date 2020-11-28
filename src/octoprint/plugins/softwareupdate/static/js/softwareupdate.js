@@ -5,10 +5,11 @@ $(function() {
         self.loginState = parameters[0];
         self.printerState = parameters[1];
         self.settings = parameters[2];
+        self.access = parameters[3];
 
         // optional
 
-        self.piSupport = parameters[3]; // might be null!
+        self.piSupport = parameters[4]; // might be null!
 
         self.popup = undefined;
 
@@ -29,7 +30,8 @@ $(function() {
         self.octoprintReleasedVersion = ko.observable();
 
         self.octoprintUnconfigured = ko.pureComputed(function() {
-            return self.error_checkoutFolder();
+            return self.settings.settings.plugins.softwareupdate.octoprint_type() === "git_commit"
+                && self.error_checkoutFolder();
         });
         self.octoprintUnreleased = ko.pureComputed(function() {
             return self.settings.settings.plugins.softwareupdate.octoprint_type() === "github_release"
@@ -39,6 +41,9 @@ $(function() {
         self.environmentSupported = ko.observable(true);
         self.environmentVersions = ko.observableArray([]);
 
+        self.storageSufficient = ko.observable(true);
+        self.storageFree = ko.observableArray([]);
+
         self.cacheTimestamp = ko.observable();
         self.cacheTimestampText = ko.pureComputed(function() {
             return formatDate(self.cacheTimestamp());
@@ -46,9 +51,13 @@ $(function() {
 
         self.config_cacheTtl = ko.observable();
         self.config_notifyUsers = ko.observable();
+        self.config_trackedBranch = ko.observable();
         self.config_checkoutFolder = ko.observable();
+        self.config_pipTarget = ko.observable();
         self.config_checkType = ko.observable();
         self.config_releaseChannel = ko.observable();
+        self.config_pipEnableCheck = ko.observable();
+        self.config_minimumFreeStorage = ko.observable();
 
         self.error_checkoutFolder = ko.pureComputed(function() {
             return self.config_checkType() === "git_commit"
@@ -56,11 +65,12 @@ $(function() {
         });
 
         self.enableUpdate = ko.pureComputed(function() {
-            return !self.updateInProgress && self.environmentSupported() && !self.printerState.isPrinting() && !self.throttled();
+            return !self.updateInProgress && self.environmentSupported() && self.storageSufficient() && !self.printerState.isPrinting() && !self.throttled();
         });
 
         self.enable_configSave = ko.pureComputed(function() {
             return self.config_checkType() === "github_release"
+                || self.config_checkType() === "github_commit"
                 || (self.config_checkType() === "git_commit" && !self.error_checkoutFolder());
         });
 
@@ -97,15 +107,15 @@ $(function() {
         });
 
         self.throttled = ko.pureComputed(function() {
-            return self.piSupport && self.piSupport.currentIssue();
+            return self.piSupport && self.piSupport.currentIssue() && !self.settings.settings.plugins.pluginmanager.ignore_throttled();
         });
 
-        self.onUserLoggedIn = function() {
-            self.performCheck();
-        };
-
-        self.onUserLoggedOut = function() {
-            self._closePopup();
+        self.onUserPermissionsChanged = self.onUserLoggedIn = self.onUserLoggedOut = function() {
+            if (self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_CHECK)) {
+                self.performCheck();
+            } else {
+                self._closePopup();
+            }
         };
 
         self._showPopup = function(options, eventListeners, singleButtonNotify) {
@@ -157,7 +167,11 @@ $(function() {
                         notify_users: self.config_notifyUsers(),
                         octoprint_type: self.config_checkType(),
                         octoprint_release_channel: self.config_releaseChannel(),
-                        octoprint_checkout_folder: self.config_checkoutFolder()
+                        octoprint_checkout_folder: self.config_checkoutFolder(),
+                        octoprint_tracked_branch: self.config_trackedBranch(),
+                        octoprint_pip_target: self.config_pipTarget(),
+                        pip_enable_check: self.config_pipEnableCheck(),
+                        minimum_free_storage: self.config_minimumFreeStorage()
                     }
                 }
             };
@@ -176,7 +190,8 @@ $(function() {
 
         self._copyConfig = function() {
             var availableCheckTypes = [{"key": "github_release", "name": gettext("Release")},
-                                       {"key": "git_commit", "name": gettext("Commit")}];
+                                       {"key": "github_commit", "name": gettext("Github Commit")},
+                                       {"key": "git_commit", "name": gettext("Local checkout")}];
             self.config_availableCheckTypes(availableCheckTypes);
 
             var availableReleaseChannels = [];
@@ -191,6 +206,12 @@ $(function() {
             self.config_checkType(self.settings.settings.plugins.softwareupdate.octoprint_type());
             self.config_releaseChannel(self.settings.settings.plugins.softwareupdate.octoprint_release_channel());
             self.config_checkoutFolder(self.settings.settings.plugins.softwareupdate.octoprint_checkout_folder());
+            self.config_trackedBranch(self.settings.settings.plugins.softwareupdate.octoprint_tracked_branch());
+            self.config_pipTarget(self.settings.settings.plugins.softwareupdate.octoprint_pip_target());
+
+            self.config_pipEnableCheck(self.settings.settings.plugins.softwareupdate.pip_enable_check());
+
+            self.config_minimumFreeStorage(self.settings.settings.plugins.softwareupdate.minimum_free_storage());
         };
 
         self._copyConfigBack = function() {
@@ -216,11 +237,11 @@ $(function() {
                 }
 
                 var fullNameTemplate = gettext("%(name)s: %(version)s");
-                value.fullNameLocal = _.sprintf(fullNameTemplate, {name: value.displayName, version: value.displayVersion});
+                value.fullNameLocal = _.sprintf(fullNameTemplate, {name: _.escape(value.displayName), version: _.escape(value.displayVersion)});
 
-                var fullNameRemoteVars = {name: value.displayName, version: gettext("unknown")};
+                var fullNameRemoteVars = {name: _.escape(value.displayName), version: gettext("unknown")};
                 if (value.hasOwnProperty("information") && value.information.hasOwnProperty("remote") && value.information.remote.hasOwnProperty("name")) {
-                    fullNameRemoteVars.version = value.information.remote.name;
+                    fullNameRemoteVars.version = _.escape(value.information.remote.name);
                 }
                 value.fullNameRemote = _.sprintf(fullNameTemplate, fullNameRemoteVars);
 
@@ -234,12 +255,15 @@ $(function() {
             self.environmentSupported(data.environment.supported);
             self.environmentVersions(data.environment.versions);
 
+            self.storageSufficient(data.storage.sufficient);
+            self.storageFree(data.storage.free);
+
             if (data.status === "inProgress") {
                 self._markWorking(gettext("Updating..."), gettext("Updating, please wait."));
                 return;
             }
 
-            if (!self.loginState.isAdmin() && !self.settings.settings.plugins.softwareupdate.notify_users()) return;
+            if (!self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_UPDATE) && !self.settings.settings.plugins.softwareupdate.notify_users()) return;
 
             if (data.status === "updateAvailable" || data.status === "updatePossible") {
                 var text = "<div class='softwareupdate_notification'>" + gettext("There are updates available for the following components:");
@@ -248,7 +272,7 @@ $(function() {
                 _.each(self.versions.items(), function(update_info) {
                     if (update_info.updateAvailable) {
                         text += "<li>"
-                            + "<i class='fa fa-li " + (update_info.updatePossible && self.environmentSupported() ? "fa-check" : "fa-remove")+ "'></i>"
+                            + "<i class='fa fa-li " + (update_info.updatePossible && self.environmentSupported() && self.storageSufficient() ? "fa-check" : "fa-remove")+ "'></i>"
                             + "<span class='name' title='" + update_info.fullNameRemote + "'>" + update_info.fullNameRemote + "</span>"
                             + (update_info.releaseNotes ? "<a href=\"" +  update_info.releaseNotes + "\" target=\"_blank\">" + gettext("Release Notes") + "</a>" : "")
                             + "</li>";
@@ -258,11 +282,13 @@ $(function() {
 
                 if (!self.environmentSupported()) {
                     text += "<p><small>" + gettext("This version of the Python environment is not supported for direct updates.") + "</small></p>";
+                } else if (!self.storageSufficient()) {
+                    text += "<p><small>" + gettext("There's currently not enough free disk space available for a direct update.") + "</small></p>";
                 } else {
                     text += "<p><small>" + gettext("Those components marked with <i class=\"fa fa-check\"></i> can be updated directly.") + "</small></p>";
                 }
 
-                if (!self.loginState.isAdmin()) {
+                if (!self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_UPDATE)) {
                     text += "<p><small>" + gettext("To have updates applied, get in touch with an administrator of this OctoPrint instance.") + "</small></p>";
                 }
 
@@ -276,7 +302,7 @@ $(function() {
                 var eventListeners = {};
 
                 var singleButtonNotify = false;
-                if (data.status === "updatePossible" && self.loginState.isAdmin()) {
+                if (data.status === "updatePossible" && self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_UPDATE)) {
                     // if update is possible and user is admin, add action buttons for ignore and update
                     options["confirm"] = {
                         confirm: true,
@@ -386,8 +412,6 @@ $(function() {
         self._markNotificationAsSeen = function(data) {
             if (!Modernizr.localstorage)
                 return false;
-            if (!self.loginState.isUser())
-                return false;
 
             var currentString = localStorage["plugin.softwareupdate.seen_information"];
             var current;
@@ -408,9 +432,6 @@ $(function() {
                 return false;
 
             var knownData = JSON.parse(localStorage["plugin.softwareupdate.seen_information"]);
-
-            if (!self.loginState.isUser())
-                return true;
 
             var userData = knownData[self.loginState.username()];
             if (userData === undefined)
@@ -436,7 +457,7 @@ $(function() {
         };
 
         self.performUpdate = function(force, items) {
-            if (!self.loginState.isAdmin()) return;
+            if (!self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_UPDATE)) return;
             if (self.printerState.isPrinting()) return;
 
             self.updateInProgress = true;
@@ -473,11 +494,7 @@ $(function() {
         };
 
         self.update = function(force, items) {
-            if (self.updateInProgress) {
-                self._updateClicked = false;
-                return;
-            }
-            if (!self.loginState.isAdmin()) {
+            if (self.updateInProgress || !self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_UPDATE)) {
                 self._updateClicked = false;
                 return;
             }
@@ -496,7 +513,7 @@ $(function() {
                 return;
             }
 
-            if (self.piSupport && self.piSupport.currentIssue()) {
+            if (self.throttled()) {
                 self._showPopup({
                     title: gettext("Can't update while throttled"),
                     text: gettext("Your system is currently throttled. OctoPrint refuses to run updates while in this state due to possible stability issues."),
@@ -536,7 +553,7 @@ $(function() {
         };
 
         self._showWorkingDialog = function(title) {
-            if (!self.loginState.isAdmin() && !self.loginState.isUser()) {
+            if (!self.loginState.hasPermission(self.access.permissions.PLUGIN_SOFTWAREUPDATE_CHECK)) {
                 return;
             }
 
@@ -654,9 +671,7 @@ $(function() {
                     break;
                 }
                 case "updating": {
-                    console.log(JSON.stringify(messageData));
-
-                    text = _.sprintf(gettext("Now updating %(name)s to %(version)s"), {name: messageData.name, version: messageData.version});
+                    text = _.sprintf(gettext("Now updating %(name)s to %(version)s"), {name: _.escape(messageData.name), version: _.escape(messageData.version)});
                     self.loglines.push({line: "", stream: "separator"});
                     self.loglines.push({line: _.repeat("+", text.length), stream: "separator"});
                     self.loglines.push({line: text, stream: "message"});
@@ -673,8 +688,6 @@ $(function() {
                     break;
                 }
                 case "restarting": {
-                    console.log(JSON.stringify(messageData));
-
                     title = gettext("Update successful, restarting!");
                     text = gettext("The update finished successfully and the server will now be restarted.");
 
@@ -713,8 +726,6 @@ $(function() {
                     break;
                 }
                 case "restart_manually": {
-                    console.log(JSON.stringify(messageData));
-
                     restartType = messageData.restart_type;
                     text = gettext("The update finished successfully, please restart OctoPrint now.");
                     if (restartType === "environment") {
@@ -814,7 +825,7 @@ $(function() {
 
     OCTOPRINT_VIEWMODELS.push({
         construct: SoftwareUpdateViewModel,
-        dependencies: ["loginStateViewModel", "printerStateViewModel", "settingsViewModel", "piSupportViewModel"],
+        dependencies: ["loginStateViewModel", "printerStateViewModel", "settingsViewModel", "accessViewModel", "piSupportViewModel"],
         optional: ["piSupportViewModel"],
         elements: ["#settings_plugin_softwareupdate", "#softwareupdate_confirmation_dialog", "#wizard_plugin_softwareupdate"]
     });

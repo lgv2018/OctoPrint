@@ -1,11 +1,12 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
 __copyright__ = "Copyright (C) 2015 The OctoPrint Project - Released under terms of the AGPLv3 License"
 
 
 import click
+click.disable_unicode_literals_warning = True
 import logging
 import sys
 
@@ -49,12 +50,12 @@ def run_server(basedir, configfile, host, port, v6_only, debug, allow_root, logg
 		from octoprint import urllib3_ssl
 		if not urllib3_ssl:
 			logging.getLogger("octoprint.server")\
-				.warn("requests/urllib3 will run in an insecure SSL environment. "
-			          "You might see corresponding warnings logged later "
-			          "(\"InsecurePlatformWarning\"). It is recommended to either "
-			          "update to a Python version >= 2.7.9 or alternatively "
-			          "install PyOpenSSL plus its dependencies. For details see "
-			          "https://urllib3.readthedocs.org/en/latest/security.html#openssl-pyopenssl")
+				.warning("requests/urllib3 will run in an insecure SSL environment. "
+			             "You might see corresponding warnings logged later "
+			             "(\"InsecurePlatformWarning\"). It is recommended to either "
+			             "update to a Python version >= 2.7.9 or alternatively "
+			             "install PyOpenSSL plus its dependencies. For details see "
+			             "https://urllib3.readthedocs.org/en/latest/security.html#openssl-pyopenssl")
 		logger.info(get_divider_line("*"))
 
 	def log_register_rollover(safe_mode=None, plugin_manager=None, environment_detector=None, **kwargs):

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
     sockjs.tornado.router
     ~~~~~~~~~~~~~~~~~~~~~
@@ -107,12 +109,11 @@ class SockJSRouter(object):
 
         check_interval = self.settings['session_check_interval'] * 1000
         self._sessions_cleanup = ioloop.PeriodicCallback(self._sessions.expire,
-                                                         check_interval,
-                                                         self.io_loop)
+                                                         check_interval)
         self._sessions_cleanup.start()
 
         # Stats
-        self.stats = stats.StatsCollector(self.io_loop)
+        self.stats = stats.StatsCollector()
 
         # Initialize URLs
         base = prefix + r'/[^/.]+/(?P<session_id>[^/.]+)'

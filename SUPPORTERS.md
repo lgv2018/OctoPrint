@@ -1,59 +1,65 @@
-# Supporters 
+# Supporters
 
 Development of this version of OctoPrint wouldn't have been possible without
-[the financial support by the community](https://octoprint.org/support-octoprint/) -
+[the financial support by the community](https://support.octoprint.org) -
 thanks to everyone who contributed!
 
-## Patreon Patrons
+## Patrons & Sponsors
 
-  * Andre Bubel
   * Andrew Moorby
-  * ANTONIO AUGUSTO DE LIMA PONTES
   * Arnljot Arntsen
+  * Ash King
+  * BigTreeTech
   * Boris Hussein
   * Brad Jackson
+  * BuildBee
   * Christian Petropolis
   * Christian Wolf
-  * COLLE+McVOY
   * D Brian Kimmel
   * DeltaMaker 3D Printers
-  * Dorian Gray
-  * E3D BigBox
+  * Dennis Breining
   * Eric Betts
   * Ernesto Martinez
   * Franziska Kunsmann
+  * GadgetAngel
   * George Robles
+  * Greg Holloway
+  * Hog Duske
+  * Hugh Blemings
   * jean-claude migneault
-  * Jeff Renfer
-  * Jefferson Hunt
-  * Jeremiah Avery
+  * Jeremy Cole
+  * Joe Pasqua
+  * John Robinson
   * Joshua Wills
   * Justin Kaufman
   * Kaile Riser
   * Kale Stedman
   * Kazuhiro Ogura
+  * Kenneth Jiang
+  * Kurt Wubbels
+  * Kyle Menigoz
   * LA 3D Printer Repair
   * Lee Dohm
-  * LulzBot®
   * Makespace Madrid
   * Mark Walker
   * Michael Aumock
   * Miles Flavel
   * Mosaic Manufacturing
-  * OMER MEHMET SUTAS
-  * Patrick Glyré
+  * Neil R. Goldberg
   * Patrick McGinnis
   * Prof Yuh Wen Chen
+  * Raise3D
   * Randy C. Will
   * Ranjib Dey
+  * Richard Michaud
   * Robert Gusek
-  * Samer Najia
-  * Shawn Lewis
-  * Simon Hallam
+  * Ronald Griehsler
+  * Sacha Telgenhof
+  * Sebastien Andrivet
   * Stefan Krister
+  * Steve Thompson
+  * Stewart Danos
   * Sven Mueller
-  * Trent Shumay
   * Ulrich Kempken
-  * Vladislav Kuzemchik
 
-and 1615 more wonderful people pledging on the [Patreon campaign](https://patreon.com/foosel) or via [Github Sponsors](https://github.com/users/foosel/sponsorship)!
+and 1943 more wonderful people pledging on the [Patreon campaign](https://patreon.com/foosel) or via [Github Sponsors](https://github.com/users/foosel/sponsorship)!

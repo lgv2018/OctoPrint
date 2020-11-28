@@ -1,5 +1,5 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __author__ = "Gina Häußge <osd@foosel.net>"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
@@ -17,6 +17,30 @@ import octoprint.filemanager.util
 import octoprint.util
 
 
+def fix_scandir():
+	try:
+		from os import scandir
+		# nothing to fix, natively available, return
+		return
+
+	except ImportError:
+		# not natively available, use backport
+		from scandir import scandir
+
+		import watchdog.utils.dirsnapshot
+		OriginalDirectorySnapshot = watchdog.utils.dirsnapshot.DirectorySnapshot
+		class FixedDirectorySnapshot(OriginalDirectorySnapshot):
+			def __init__(self, listdir=scandir, *args, **kwargs):
+				OriginalDirectorySnapshot.__init__(self, listdir=listdir, *args, **kwargs)
+		watchdog.utils.dirsnapshot.DirectorySnapshot = FixedDirectorySnapshot
+
+		import watchdog.observers.polling
+		OriginalPollingEmitter = watchdog.observers.polling.PollingEmitter
+		class FixedPollingEmitter(OriginalPollingEmitter):
+			def __init__(self, listdir=scandir, *args, **kwargs):
+				OriginalPollingEmitter.__init__(self, listdir=listdir, *args, **kwargs)
+		watchdog.observers.polling.PollingEmitter = FixedPollingEmitter
+
 class GcodeWatchdogHandler(watchdog.events.PatternMatchingEventHandler):
 
 	"""
@@ -24,22 +48,35 @@ class GcodeWatchdogHandler(watchdog.events.PatternMatchingEventHandler):
 	"""
 
 	def __init__(self, file_manager, printer):
-		watchdog.events.PatternMatchingEventHandler.__init__(self, patterns=map(lambda x: "*.%s" % x, octoprint.filemanager.get_all_extensions()))
+		watchdog.events.PatternMatchingEventHandler.__init__(self, patterns=list(map(lambda x: "*.%s" % x, octoprint.filemanager.get_all_extensions())))
 
 		self._logger = logging.getLogger(__name__)
 
 		self._file_manager = file_manager
 		self._printer = printer
 
-	def initial_scan(self, folder):
-		def run_scan():
-			try:
-				from os import scandir
-			except ImportError:
-				from scandir import scandir
+		self._watched_folder = None
 
+	def initial_scan(self, folder):
+		try:
+			from os import scandir
+		except ImportError:
+			from scandir import scandir
+
+		def _recursive_scandir(path):
+			"""Recursively yield DirEntry objects for given directory."""
+			for entry in scandir(path):
+				if entry.is_dir(follow_symlinks=False):
+					for entry in _recursive_scandir(entry.path):
+						yield entry
+				else:
+					yield entry
+
+		def run_scan():
 			self._logger.info("Running initial scan on watched folder...")
-			for entry in scandir(folder):
+			self._watched_folder = folder
+
+			for entry in _recursive_scandir(folder):
 				path = entry.path
 
 				if not self._valid_path(path):
@@ -66,11 +103,13 @@ class GcodeWatchdogHandler(watchdog.events.PatternMatchingEventHandler):
 		# noinspection PyBroadException
 		try:
 			file_wrapper = octoprint.filemanager.util.DiskFileWrapper(os.path.basename(path), path)
+			relative_path = os.path.relpath(path, self._watched_folder)
 
 			# determine future filename of file to be uploaded, abort if it can't be uploaded
 			try:
-				futurePath, futureFilename = self._file_manager.sanitize(octoprint.filemanager.FileDestinations.LOCAL, file_wrapper.filename)
-			except:
+				futurePath, futureFilename = self._file_manager.sanitize(octoprint.filemanager.FileDestinations.LOCAL, relative_path)
+			except Exception:
+				self._logger.exception("Could not wrap %s", path)
 				futurePath = None
 				futureFilename = None
 
@@ -87,13 +126,13 @@ class GcodeWatchdogHandler(watchdog.events.PatternMatchingEventHandler):
 			reselect = self._printer.is_current_file(futureFullPathInStorage, False)
 
 			added_file = self._file_manager.add_file(octoprint.filemanager.FileDestinations.LOCAL,
-			                                         file_wrapper.filename,
+			                                         relative_path,
 			                                         file_wrapper,
 			                                         allow_overwrite=True)
 			if os.path.exists(path):
 				try:
 					os.remove(path)
-				except:
+				except Exception:
 					pass
 
 			if reselect:
@@ -115,7 +154,7 @@ class GcodeWatchdogHandler(watchdog.events.PatternMatchingEventHandler):
 	def _repeatedly_check(self, path, interval=1, stable=5):
 		try:
 			last_size = os.stat(path).st_size
-		except:
+		except Exception:
 			return
 
 		countdown = stable
@@ -123,7 +162,7 @@ class GcodeWatchdogHandler(watchdog.events.PatternMatchingEventHandler):
 		while True:
 			try:
 				new_size = os.stat(path).st_size
-			except:
+			except Exception:
 				return
 
 			if new_size == last_size:

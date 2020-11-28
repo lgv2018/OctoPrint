@@ -1,5 +1,5 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __author__ = "Gina Häußge <osd@foosel.net>"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
@@ -19,7 +19,8 @@ import time
 from octoprint.events import Events, eventManager
 from octoprint.settings import settings
 from octoprint.util import monotonic_time
-from octoprint.util import get_fully_qualified_classname as fqcn
+from octoprint.util import get_fully_qualified_classname as fqcn, dict_merge
+from octoprint.util.platform import CLOSE_FDS
 
 
 class QueueEntry(collections.namedtuple("QueueEntry", "name, path, type, location, absolute_path, printer_profile, analysis")):
@@ -97,16 +98,16 @@ class AnalysisQueue(object):
 		self._queues[entry.type].dequeue(entry.location, entry.path)
 
 	def dequeue_folder(self, destination, path):
-		for queue in self._queues.values():
-			queue.dequeue_folder(destination, path)
+		for q in self._queues.values():
+			q.dequeue_folder(destination, path)
 
 	def pause(self):
-		for queue in self._queues.values():
-			queue.pause()
+		for q in self._queues.values():
+			q.pause()
 
 	def resume(self):
-		for queue in self._queues.values():
-			queue.resume()
+		for q in self._queues.values():
+			q.resume()
 
 	def _analysis_finished(self, entry, result):
 		for callback in self._callbacks:
@@ -118,10 +119,7 @@ class AnalysisQueue(object):
 		eventManager().fire(Events.METADATA_ANALYSIS_FINISHED, {"name": entry.name,
 		                                                        "path": entry.path,
 		                                                        "origin": entry.location,
-		                                                        "result": result,
-
-		                                                        # TODO: deprecated, remove in a future release
-		                                                        "file": entry.path})
+		                                                        "result": result})
 
 class AbstractAnalysisQueue(object):
 	"""
@@ -179,7 +177,10 @@ class AbstractAnalysisQueue(object):
 		        (False, default)
 		"""
 
-		if high_priority:
+		if settings().get(["gcodeAnalysis", "runAt"]) == "never":
+			self._logger.debug("Ignoring entry {entry} for analysis queue".format(entry=entry))
+			return
+		elif high_priority:
 			self._logger.debug("Adding entry {entry} to analysis queue with high priority".format(entry=entry))
 			prio = self.__class__.HIGH_PRIO
 		else:
@@ -260,10 +261,7 @@ class AbstractAnalysisQueue(object):
 			eventManager().fire(Events.METADATA_ANALYSIS_STARTED, {"name": entry.name,
 			                                                       "path": entry.path,
 			                                                       "origin": entry.location,
-			                                                       "type": entry.type,
-
-			                                                       # TODO deprecated, remove in 1.4.0
-			                                                       "file": entry.path})
+			                                                       "type": entry.type})
 			try:
 				result = self._do_analysis(high_priority=high_priority)
 			except TypeError:
@@ -348,8 +346,12 @@ class GcodeAnalysisQueue(AbstractAnalysisQueue):
 		import sys
 		import yaml
 
-		if self._current.analysis:
+		if self._current.analysis and all(map(lambda x: x in self._current.analysis, ("printingArea",
+		                                                                              "dimensions",
+		                                                                              "estimatedPrintTime",
+		                                                                              "filament"))):
 			return self._current.analysis
+
 		try:
 			throttle = settings().getFloat(["gcodeAnalysis", "throttle_highprio"]) if high_priority \
 				else settings().getFloat(["gcodeAnalysis", "throttle_normalprio"])
@@ -373,7 +375,7 @@ class GcodeAnalysisQueue(AbstractAnalysisQueue):
 			self._logger.info("Invoking analysis command: {}".format(" ".join(command)))
 
 			self._aborted = False
-			p = sarge.run(command, async_=True, stdout=sarge.Capture())
+			p = sarge.run(command, close_fds=CLOSE_FDS, async_=True, stdout=sarge.Capture())
 
 			while len(p.commands) == 0:
 				# somewhat ugly... we can't use wait_events because
@@ -388,7 +390,7 @@ class GcodeAnalysisQueue(AbstractAnalysisQueue):
 
 			if not p.commands[0].process:
 				# the process might have been set to None in case of any exception
-				raise RuntimeError(u"Error while trying to run command {}".format(" ".join(command)))
+				raise RuntimeError("Error while trying to run command {}".format(" ".join(command)))
 
 			try:
 				# let's wait for stuff to finish
@@ -424,7 +426,11 @@ class GcodeAnalysisQueue(AbstractAnalysisQueue):
 						"length": analysis["extrusion_length"][i],
 						"volume": analysis["extrusion_volume"][i]
 					}
-			return result
+
+			if self._current.analysis and isinstance(self._current.analysis, dict):
+				return dict_merge(result, self._current.analysis)
+			else:
+				return result
 		finally:
 			self._gcode = None
 
